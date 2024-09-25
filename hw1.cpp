@@ -35,11 +35,12 @@ void applyFilterToChannel(
     for (int x = pre; x < height; x++) {
         for (int y = pre; y < width; y++) {
             int kernelRadius = (kernelSizes[x-pre][y-pre] >> 1);
+            int n = (kernelRadius == 5) ? 121 : 25;
 
-            output[x-pre][y-pre] = cumulativeInput[x + kernelRadius][y + kernelRadius]
+            output[x-pre][y-pre] = (cumulativeInput[x + kernelRadius][y + kernelRadius]
                                   -cumulativeInput[x - kernelRadius - 1][y + kernelRadius]
                                   -cumulativeInput[x + kernelRadius][y - kernelRadius - 1]
-                                  +cumulativeInput[x - kernelRadius - 1][y - kernelRadius - 1];
+                                  +cumulativeInput[x - kernelRadius - 1][y - kernelRadius - 1]) / n;
         }
     }
 }
