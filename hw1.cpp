@@ -50,9 +50,9 @@ void adaptiveFilterRGB(
     int height, 
     int width
 ) {
-    std::vector<std::vector<int>> redChannel(height, std::vector<int>(width));
-    std::vector<std::vector<int>> greenChannel(height, std::vector<int>(width));
-    std::vector<std::vector<int>> blueChannel(height, std::vector<int>(width));
+    // std::vector<std::vector<int>> redChannel(height, std::vector<int>(width));
+    // std::vector<std::vector<int>> greenChannel(height, std::vector<int>(width));
+    // std::vector<std::vector<int>> blueChannel(height, std::vector<int>(width));
     std::vector<std::vector<int>> kernelSizes(height, std::vector<int>(width));
 
     int plusDimension = 11, plusPre = 6;
@@ -102,6 +102,20 @@ void adaptiveFilterRGB(
                     blueCumulativeSum[x][y] = blueCumulativeSum[x][y-1] + blueCumulativeSum[x-1][y]
                                             - blueCumulativeSum[x-1][y-1] + temp;
                 }
+            }
+        }
+    }
+
+    // check cumulative sum
+    for (int x = plusPre; x < height + plusPre; x++) {
+        for (int y = plusPre; y < width + plusPre; y++) {
+            int temp = greenCumulativeSum[x][y]
+                        -greenCumulativeSum[x - 1][y]
+                        -greenCumulativeSum[x][y - 1]
+                        +greenCumulativeSum[x - 1][y - 1];
+            if (inputImage[x-plusPre][y-plusPre].g != temp){
+                std::cout << x << ", " << y << "diff" << std::endl;
+                exit(1);
             }
         }
     }
