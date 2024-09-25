@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <chrono>
+#include <omp.h>
 // #include <pthread.h>
 
 struct RGB {
@@ -21,29 +22,24 @@ int determineKernelSize(double brightness) {
 }
 
 void applyFilterToChannel(
-    const std::vector<std::vector<int>>& input, 
+    const std::vector<std::vector<int>>& cumulativeInput, 
     std::vector<std::vector<int>>& output, 
     const std::vector<std::vector<int>>& kernelSizes, 
     int height,
-    int width
+    int width,
+    int pre
 ) {
-    for (int x = 0; x < height; x++) {
-        for (int y = 0; y < width; y++) {
-            int kernelSize = kernelSizes[x][y];
-            int kernelRadius = kernelSize / 2;
-            double sum = 0.0;
-            double filteredPixel = 0.0;
+    height += pre;
+    width += pre;
 
-            for (int i = -kernelRadius; i <= kernelRadius; i++) {
-                for (int j = -kernelRadius; j <= kernelRadius; j++) {
-                    int pixelX = std::min(std::max(x + i, 0), height - 1);
-                    int pixelY = std::min(std::max(y + j, 0), width - 1);
-                    filteredPixel += input[pixelX][pixelY];
-                    sum += 1.0;
-                }
-            }
+    for (int x = pre; x < height; x++) {
+        for (int y = pre; y < width; y++) {
+            int kernelRadius = (kernelSizes[x-pre][y-pre] >> 1);
 
-            output[x][y] = static_cast<int>(filteredPixel / sum);
+            output[x-pre][y-pre] = cumulativeInput[x + kernelRadius][y + kernelRadius]
+                                  -cumulativeInput[x - kernelRadius - 1][y + kernelRadius]
+                                  -cumulativeInput[x + kernelRadius][y - kernelRadius - 1]
+                                  +cumulativeInput[x - kernelRadius - 1][y - kernelRadius - 1];
         }
     }
 }
@@ -57,21 +53,56 @@ void adaptiveFilterRGB(
     std::vector<std::vector<int>> redChannel(height, std::vector<int>(width));
     std::vector<std::vector<int>> greenChannel(height, std::vector<int>(width));
     std::vector<std::vector<int>> blueChannel(height, std::vector<int>(width));
-
-    for (int x = 0; x < height; x++) {
-        for (int y = 0; y < width; y++) {
-            redChannel[x][y] = inputImage[x][y].r;
-            greenChannel[x][y] = inputImage[x][y].g;
-            blueChannel[x][y] = inputImage[x][y].b;
-        }
-    }
-
     std::vector<std::vector<int>> kernelSizes(height, std::vector<int>(width));
 
-    for (int x = 0; x < height; x++) {
-        for (int y = 0; y < width; y++) {
-            double brightness = calculateLuminance(inputImage[x][y]);
-            kernelSizes[x][y] = determineKernelSize(brightness);
+    int plusDimension = 11, plusPre = 6;
+    std::vector<std::vector<int>> redCumulativeSum(height+plusDimension, std::vector<int>(width+plusDimension));
+    std::vector<std::vector<int>> greenCumulativeSum(height+plusDimension, std::vector<int>(width+plusDimension));
+    std::vector<std::vector<int>> blueCumulativeSum(height+plusDimension, std::vector<int>(width+plusDimension));
+
+    #pragma omp parallel sections
+    {
+        #pragma omp section
+        {
+            for (int x = 0; x < height; x++) {
+                for (int y = 0; y < width; y++) {
+                    double brightness = calculateLuminance(inputImage[x][y]);
+                    kernelSizes[x][y] = determineKernelSize(brightness);
+                }
+            }
+        }
+        #pragma omp section
+        {
+            for (int x = plusPre; x < height + plusDimension; x++) {
+                for (int y = plusPre; y < width + plusDimension; y++) {
+                    int temp = (x >= height + plusPre || y >= width + plusPre) ?
+                                    0 : inputImage[x - plusPre][y - plusPre].r;
+                    redCumulativeSum[x][y] = redCumulativeSum[x][y-1] + redCumulativeSum[x-1][y]
+                                        - redCumulativeSum[x-1][y-1] + temp;
+                }
+            }
+        }
+        #pragma omp section
+        {
+            for (int x = plusPre; x < height + plusDimension; x++) {
+                for (int y = plusPre; y < width + plusDimension; y++) {
+                    int temp = (x >= height + plusPre || y >= width + plusPre) ?
+                                    0 : inputImage[x - plusPre][y - plusPre].g;
+                    greenCumulativeSum[x][y] = greenCumulativeSum[x][y-1] + greenCumulativeSum[x-1][y]
+                                            - greenCumulativeSum[x-1][y-1] + temp;
+                }
+            }
+        }
+        #pragma omp section
+        {
+            for (int x = plusPre; x < height + plusDimension; x++) {
+                for (int y = plusPre; y < width + plusDimension; y++) {
+                    int temp = (x >= height + plusPre || y >= width + plusPre) ?
+                                    0 : inputImage[x - plusPre][y - plusPre].b;
+                    blueCumulativeSum[x][y] = blueCumulativeSum[x][y-1] + blueCumulativeSum[x-1][y]
+                                            - blueCumulativeSum[x-1][y-1] + temp;
+                }
+            }
         }
     }
 
@@ -79,9 +110,21 @@ void adaptiveFilterRGB(
     std::vector<std::vector<int>> tempGreen(height, std::vector<int>(width));
     std::vector<std::vector<int>> tempBlue(height, std::vector<int>(width));
 
-    applyFilterToChannel(redChannel, tempRed, kernelSizes, height, width);
-    applyFilterToChannel(greenChannel, tempGreen, kernelSizes, height, width);
-    applyFilterToChannel(blueChannel, tempBlue, kernelSizes, height, width);
+    #pragma omp parallel sections
+    {
+        #pragma omp section
+        {
+            applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+        }
+        #pragma omp section
+        {
+            applyFilterToChannel(greenCumulativeSum, tempGreen, kernelSizes, height, width, plusPre);
+        }
+        #pragma omp section
+        {
+            applyFilterToChannel(blueCumulativeSum, tempBlue, kernelSizes, height, width, plusPre);
+        }
+    }
 
     for (int x = 0; x < height; x++) {
         for (int y = 0; y < width; y++) {
@@ -253,7 +296,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    // auto start_all = std::chrono::high_resolution_clock::now();
+    auto start_all = std::chrono::high_resolution_clock::now();
 
     char* input_file = argv[1];
     char* output_file = argv[2];
@@ -266,21 +309,21 @@ int main(int argc, char** argv) {
 
     std::vector<std::vector<RGB>> outputImage(height, std::vector<RGB>(width));
 
-    // auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::high_resolution_clock::now();
 
     adaptiveFilterRGB(inputImage, outputImage, height, width);
-    // adaptiveFilterRGB_parallel(inputImage, outputImage, height, width);
+    adaptiveFilterRGB_parallel(inputImage, outputImage, height, width);
 
-    // auto end = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::high_resolution_clock::now();
 
-    // std::chrono::duration<double> elapsed_seconds = end - start;
-    // std::cout << "Main Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
+    std::chrono::duration<double> elapsed_seconds = end - start;
+    std::cout << "Main Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
 
     write_png_file(output_file, outputImage);
 
-    // auto end_all = std::chrono::high_resolution_clock::now();
-    // elapsed_seconds = end_all - start_all;
-    // std::cout << "Total Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
+    auto end_all = std::chrono::high_resolution_clock::now();
+    elapsed_seconds = end_all - start_all;
+    std::cout << "Total Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
 
     return 0;
 }
