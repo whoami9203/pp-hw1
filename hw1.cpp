@@ -312,7 +312,7 @@ int main(int argc, char** argv) {
     auto start = std::chrono::high_resolution_clock::now();
 
     adaptiveFilterRGB(inputImage, outputImage, height, width);
-    adaptiveFilterRGB_parallel(inputImage, outputImage, height, width);
+    // adaptiveFilterRGB_parallel(inputImage, outputImage, height, width);
 
     auto end = std::chrono::high_resolution_clock::now();
 
