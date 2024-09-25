@@ -108,18 +108,18 @@ void adaptiveFilterRGB(
     }
 
     // check cumulative sum
-    for (int x = plusPre; x < height + plusPre; x++) {
-        for (int y = plusPre; y < width + plusPre; y++) {
-            int temp = greenCumulativeSum[x][y]
-                        -greenCumulativeSum[x - 1][y]
-                        -greenCumulativeSum[x][y - 1]
-                        +greenCumulativeSum[x - 1][y - 1];
-            if (inputImage[x-plusPre][y-plusPre].g != temp){
-                std::cout << x << ", " << y << "diff" << std::endl;
-                exit(1);
-            }
-        }
-    }
+    // for (int x = plusPre; x < height + plusPre; x++) {
+    //     for (int y = plusPre; y < width + plusPre; y++) {
+    //         int temp = greenCumulativeSum[x][y]
+    //                     -greenCumulativeSum[x - 1][y]
+    //                     -greenCumulativeSum[x][y - 1]
+    //                     +greenCumulativeSum[x - 1][y - 1];
+    //         if (inputImage[x-plusPre][y-plusPre].g != temp){
+    //             std::cout << x << ", " << y << "diff" << std::endl;
+    //             exit(1);
+    //         }
+    //     }
+    // }
 
     std::vector<std::vector<int>> tempRed(height, std::vector<int>(width));
     std::vector<std::vector<int>> tempGreen(height, std::vector<int>(width));
