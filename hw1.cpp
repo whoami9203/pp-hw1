@@ -34,7 +34,7 @@ void applyFilterToChannel(
 
     for (int x = pre; x < height; x++) {
         for (int y = pre; y < width; y++) {
-            int n = (kernelSizes[x-pre][y-pre] == 5) ? 25 : 125;
+            int n = (kernelSizes[x-pre][y-pre] == 5) ? 25 : 121;
             int kernelRadius = (kernelSizes[x-pre][y-pre] >> 1);
 
             output[x-pre][y-pre] = (cumulativeInput[x + kernelRadius][y + kernelRadius]
@@ -292,7 +292,7 @@ void write_png_file(char* file_name, std::vector<std::vector<RGB>>& image) {
     size_t row_size = png_get_rowbytes(png, info);
 
     png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
-    #pragma omp parallel for schedule(dynamic)
+    #pragma omp parallel for schedule(guided)
     for (int y = 0; y < height; y++) {
         row_pointers[y] = (png_byte*)malloc(row_size);
         for (int x = 0; x < width; x++) {
