@@ -34,8 +34,8 @@ void applyFilterToChannel(
 
     for (int x = pre; x < height; x++) {
         for (int y = pre; y < width; y++) {
+            int n = (kernelSizes[x-pre][y-pre] == 5) ? 25 : 125;
             int kernelRadius = (kernelSizes[x-pre][y-pre] >> 1);
-            int n = (kernelRadius == 5) ? 121 : 25;
 
             output[x-pre][y-pre] = (cumulativeInput[x + kernelRadius][y + kernelRadius]
                                   -cumulativeInput[x - kernelRadius - 1][y + kernelRadius]
@@ -57,9 +57,12 @@ void adaptiveFilterRGB(
     std::vector<std::vector<int>> kernelSizes(height, std::vector<int>(width));
 
     int plusDimension = 11, plusPre = 6;
-    std::vector<std::vector<int>> redCumulativeSum(height+plusDimension, std::vector<int>(width+plusDimension));
-    std::vector<std::vector<int>> greenCumulativeSum(height+plusDimension, std::vector<int>(width+plusDimension));
-    std::vector<std::vector<int>> blueCumulativeSum(height+plusDimension, std::vector<int>(width+plusDimension));
+    int tHeight = height+plusDimension, tWidth = width+plusDimension;
+    int hHeight = height+plusPre, hWidth = width+plusPre;
+
+    std::vector<std::vector<int>> redCumulativeSum(tHeight, std::vector<int>(tWidth));
+    std::vector<std::vector<int>> greenCumulativeSum(tHeight, std::vector<int>(tWidth));
+    std::vector<std::vector<int>> blueCumulativeSum(tHeight, std::vector<int>(tWidth));
 
     #pragma omp parallel sections
     {
@@ -74,42 +77,45 @@ void adaptiveFilterRGB(
         }
         #pragma omp section
         {
-            for (int x = plusPre; x < height + plusDimension; x++) {
-                for (int y = plusPre; y < width + plusDimension; y++) {
-                    int temp = (x >= height + plusPre || y >= width + plusPre) ?
-                                    0 : inputImage[x - plusPre][y - plusPre].r;
-                    redCumulativeSum[x][y] = redCumulativeSum[x][y-1] + redCumulativeSum[x-1][y]
-                                        - redCumulativeSum[x-1][y-1] + temp;
+            for (int x = 1; x < tHeight; x++) {
+                for (int y = 1; y < tWidth; y++) {
+                    int i = std::min(std::max(x, plusPre), hHeight - 1);
+                    int j = std::min(std::max(y, plusPre), hWidth - 1);
+
+                    redCumulativeSum[x][y] = inputImage[i-plusPre][j-plusPre].r - redCumulativeSum[x-1][y-1]
+                                            + redCumulativeSum[x][y-1] + redCumulativeSum[x-1][y];
                 }
             }
         }
         #pragma omp section
         {
-            for (int x = plusPre; x < height + plusDimension; x++) {
-                for (int y = plusPre; y < width + plusDimension; y++) {
-                    int temp = (x >= height + plusPre || y >= width + plusPre) ?
-                                    0 : inputImage[x - plusPre][y - plusPre].g;
-                    greenCumulativeSum[x][y] = greenCumulativeSum[x][y-1] + greenCumulativeSum[x-1][y]
-                                            - greenCumulativeSum[x-1][y-1] + temp;
+            for (int x = 1; x < tHeight; x++) {
+                for (int y = 1; y < tWidth; y++) {
+                    int i = std::min(std::max(x, plusPre), hHeight - 1);
+                    int j = std::min(std::max(y, plusPre), hWidth - 1);
+
+                    greenCumulativeSum[x][y] = inputImage[i-plusPre][j-plusPre].g - greenCumulativeSum[x-1][y-1]
+                                            + greenCumulativeSum[x][y-1] + greenCumulativeSum[x-1][y];
                 }
             }
         }
         #pragma omp section
         {
-            for (int x = plusPre; x < height + plusDimension; x++) {
-                for (int y = plusPre; y < width + plusDimension; y++) {
-                    int temp = (x >= height + plusPre || y >= width + plusPre) ?
-                                    0 : inputImage[x - plusPre][y - plusPre].b;
-                    blueCumulativeSum[x][y] = blueCumulativeSum[x][y-1] + blueCumulativeSum[x-1][y]
-                                            - blueCumulativeSum[x-1][y-1] + temp;
+            for (int x = 1; x < tHeight; x++) {
+                for (int y = 1; y < tWidth; y++) {
+                    int i = std::min(std::max(x, plusPre), hHeight - 1);
+                    int j = std::min(std::max(y, plusPre), hWidth - 1);
+
+                    blueCumulativeSum[x][y] = inputImage[i-plusPre][j-plusPre].b - blueCumulativeSum[x-1][y-1]
+                                            + blueCumulativeSum[x][y-1] + blueCumulativeSum[x-1][y];
                 }
             }
         }
     }
 
-    // check cumulative sum
-    // for (int x = plusPre; x < height + plusPre; x++) {
-    //     for (int y = plusPre; y < width + plusPre; y++) {
+    // // check cumulative sum
+    // for (int x = plusPre; x < hHeight; x++) {
+    //     for (int y = plusPre; y < hWidth; y++) {
     //         int temp = greenCumulativeSum[x][y]
     //                     -greenCumulativeSum[x - 1][y]
     //                     -greenCumulativeSum[x][y - 1]
@@ -283,9 +289,12 @@ void write_png_file(char* file_name, std::vector<std::vector<RGB>>& image) {
     );
     png_write_info(png, info);
 
+    size_t row_size = png_get_rowbytes(png, info);
+
     png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
+    #pragma omp parallel for schedule(dynamic)
     for (int y = 0; y < height; y++) {
-        row_pointers[y] = (png_byte*)malloc(png_get_rowbytes(png,info));
+        row_pointers[y] = (png_byte*)malloc(row_size);
         for (int x = 0; x < width; x++) {
             row_pointers[y][x * 3] = image[y][x].r;
             row_pointers[y][x * 3 + 1] = image[y][x].g;
