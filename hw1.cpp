@@ -131,24 +131,24 @@ void adaptiveFilterRGB(
     std::vector<std::vector<int>> tempGreen(height, std::vector<int>(width));
     std::vector<std::vector<int>> tempBlue(height, std::vector<int>(width));
 
-    // #pragma omp parallel sections
-    // {
-    //     #pragma omp section
-    //     {
-    //         applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
-    //     }
-    //     #pragma omp section
-    //     {
-    //         applyFilterToChannel(greenCumulativeSum, tempGreen, kernelSizes, height, width, plusPre);
-    //     }
-    //     #pragma omp section
-    //     {
-    //         applyFilterToChannel(blueCumulativeSum, tempBlue, kernelSizes, height, width, plusPre);
-    //     }
-    // }
-    applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
-    applyFilterToChannel(greenCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
-    applyFilterToChannel(blueCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+    #pragma omp parallel sections
+    {
+        #pragma omp section
+        {
+            applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+        }
+        #pragma omp section
+        {
+            applyFilterToChannel(greenCumulativeSum, tempGreen, kernelSizes, height, width, plusPre);
+        }
+        #pragma omp section
+        {
+            applyFilterToChannel(blueCumulativeSum, tempBlue, kernelSizes, height, width, plusPre);
+        }
+    }
+    // applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+    // applyFilterToChannel(greenCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+    // applyFilterToChannel(blueCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
 
     for (int x = 0; x < height; x++) {
         for (int y = 0; y < width; y++) {
