@@ -131,21 +131,24 @@ void adaptiveFilterRGB(
     std::vector<std::vector<int>> tempGreen(height, std::vector<int>(width));
     std::vector<std::vector<int>> tempBlue(height, std::vector<int>(width));
 
-    #pragma omp parallel sections
-    {
-        #pragma omp section
-        {
-            applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
-        }
-        #pragma omp section
-        {
-            applyFilterToChannel(greenCumulativeSum, tempGreen, kernelSizes, height, width, plusPre);
-        }
-        #pragma omp section
-        {
-            applyFilterToChannel(blueCumulativeSum, tempBlue, kernelSizes, height, width, plusPre);
-        }
-    }
+    // #pragma omp parallel sections
+    // {
+    //     #pragma omp section
+    //     {
+    //         applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+    //     }
+    //     #pragma omp section
+    //     {
+    //         applyFilterToChannel(greenCumulativeSum, tempGreen, kernelSizes, height, width, plusPre);
+    //     }
+    //     #pragma omp section
+    //     {
+    //         applyFilterToChannel(blueCumulativeSum, tempBlue, kernelSizes, height, width, plusPre);
+    //     }
+    // }
+    applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+    applyFilterToChannel(greenCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+    applyFilterToChannel(blueCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
 
     for (int x = 0; x < height; x++) {
         for (int y = 0; y < width; y++) {
@@ -289,8 +292,8 @@ void write_png_file(char* file_name, std::vector<std::vector<RGB>>& image) {
     );
     png_write_info(png, info);
 
-    // auto start = std::chrono::high_resolution_clock::now();
     size_t row_size = png_get_rowbytes(png, info);
+    // std::cout << width << ", " << height << ", " << row_size << std::endl;
 
     png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
     #pragma omp parallel for schedule(guided)
@@ -303,24 +306,30 @@ void write_png_file(char* file_name, std::vector<std::vector<RGB>>& image) {
         }
     }
 
-    // auto loop_end = std::chrono::high_resolution_clock::now();
+    // auto start = std::chrono::high_resolution_clock::now();
 
     png_write_image(png, row_pointers);
     png_write_end(png, nullptr);
+
+    // auto write_end = std::chrono::high_resolution_clock::now();
 
     for (int y = 0; y < height; y++) {
         free(row_pointers[y]);
     }
     free(row_pointers);
 
+    // auto free_end = std::chrono::high_resolution_clock::now();
+
     png_destroy_write_struct(&png, &info);
     fclose(fp);
 
     // auto end = std::chrono::high_resolution_clock::now();
-    // std::chrono::duration<double> elapsed_seconds = loop_end - start;
+    // std::chrono::duration<double> write_seconds = write_end - start;
+    // std::chrono::duration<double> free_seconds = free_end - write_end;
     // std::chrono::duration<double> end_all_seconds = end - start;
-    // std::cout << "loop time: " << elapsed_seconds.count() * 1000.0 << "ms" << std::endl;
-    // std::cout << "write time: " << end_all_seconds.count() * 1000.0 << "ms" << std::endl;
+    // std::cout << "write time: " << write_seconds.count() * 1000.0 << "ms" << std::endl;
+    // std::cout << "free time: " << free_seconds.count() * 1000.0 << "ms" << std::endl;
+    // std::cout << "write file time: " << end_all_seconds.count() * 1000.0 << "ms" << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -329,7 +338,7 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    // auto start_all = std::chrono::high_resolution_clock::now();
+    auto start_all = std::chrono::high_resolution_clock::now();
 
     char* input_file = argv[1];
     char* output_file = argv[2];
@@ -342,21 +351,20 @@ int main(int argc, char** argv) {
 
     std::vector<std::vector<RGB>> outputImage(height, std::vector<RGB>(width));
 
-    // auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::high_resolution_clock::now();
 
     adaptiveFilterRGB(inputImage, outputImage, height, width);
-    // adaptiveFilterRGB_parallel(inputImage, outputImage, height, width);
 
-    // auto end = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::high_resolution_clock::now();
 
-    // std::chrono::duration<double> elapsed_seconds = end - start;
-    // std::cout << "Main Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
+    std::chrono::duration<double> elapsed_seconds = end - start;
+    std::cout << "Main Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
 
     write_png_file(output_file, outputImage);
 
-    // auto end_all = std::chrono::high_resolution_clock::now();
-    // elapsed_seconds = end_all - start_all;
-    // std::cout << "Total Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
+    auto end_all = std::chrono::high_resolution_clock::now();
+    elapsed_seconds = end_all - start_all;
+    std::cout << "Total Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
 
     return 0;
 }
