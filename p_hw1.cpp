@@ -494,20 +494,20 @@ int main(int argc, char** argv) {
 
     std::vector<std::vector<RGB>> outputImage(height, std::vector<RGB>(width));
 
-    // auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::high_resolution_clock::now();
 
     adaptiveFilterRGB(inputImage, outputImage, height, width);
 
-    // auto end = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::high_resolution_clock::now();
 
-    // std::chrono::duration<double> elapsed_seconds = end - start;
-    // std::cout << "Main Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
+    std::chrono::duration<double> elapsed_seconds = end - start;
+    std::cout << "Main Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
 
     write_png_file(output_file, outputImage);
 
-    // auto end_all = std::chrono::high_resolution_clock::now();
-    // elapsed_seconds = end_all - start_all;
-    // std::cout << "Total Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
+    auto end_all = std::chrono::high_resolution_clock::now();
+    elapsed_seconds = end_all - start_all;
+    std::cout << "Total Program Time: " << elapsed_seconds.count() * 1000.0 << " ms" << std::endl;
 
     return 0;
 }
