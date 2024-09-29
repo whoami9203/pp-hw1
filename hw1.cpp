@@ -33,6 +33,17 @@ struct FArags {
     int width;
     int plusPre;
 };
+struct WArgs {
+    int startRow;
+    int endRow;
+    int width;
+    int row_size;
+    png_bytep* row_pointers;
+    const std::vector<std::vector<RGB>>& image;
+
+    WArgs(int start, int end, int w, int rs, png_bytep* rp, const std::vector<std::vector<RGB>>& img)
+        : startRow(start), endRow(end), width(w), row_size(rs), row_pointers(rp), image(img) {}
+};
 
 double calculateLuminance(const RGB& pixel) {
     return 0.299 * pixel.r + 0.587 * pixel.g + 0.114 * pixel.b;
@@ -354,6 +365,21 @@ void read_png_file(char* file_name, std::vector<std::vector<RGB>>& image) {
     png_destroy_read_struct(&png, &info, nullptr);
 }
 
+void* processRows(void* args) {
+    WArgs* threadArgs = (WArgs*)args;
+
+    for (int y = threadArgs->startRow; y < threadArgs->endRow; y++) {
+        threadArgs->row_pointers[y] = (png_byte*)malloc(threadArgs->row_size);
+        for (int x = 0; x < threadArgs->width; x++) {
+            threadArgs->row_pointers[y][x * 3] = threadArgs->image[y][x].r;
+            threadArgs->row_pointers[y][x * 3 + 1] = threadArgs->image[y][x].g;
+            threadArgs->row_pointers[y][x * 3 + 2] = threadArgs->image[y][x].b;
+        }
+    }
+
+    pthread_exit(NULL);
+}
+
 void write_png_file(char* file_name, std::vector<std::vector<RGB>>& image) {
     int width = image[0].size();
     int height = image.size();
@@ -401,17 +427,26 @@ void write_png_file(char* file_name, std::vector<std::vector<RGB>>& image) {
     png_write_info(png, info);
 
     size_t row_size = png_get_rowbytes(png, info);
-    // std::cout << width << ", " << height << ", " << row_size << std::endl;
+
+    int num_threads = 8;  // Set the number of threads you want
+    pthread_t threads[num_threads];
 
     png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
-    // #pragma omp parallel for schedule(guided)
-    for (int y = 0; y < height; y++) {
-        row_pointers[y] = (png_byte*)malloc(row_size);
-        for (int x = 0; x < width; x++) {
-            row_pointers[y][x * 3] = image[y][x].r;
-            row_pointers[y][x * 3 + 1] = image[y][x].g;
-            row_pointers[y][x * 3 + 2] = image[y][x].b;
-        }
+    int rows_per_thread = height / num_threads;
+
+    // Create threads and distribute rows among them
+    for (int i = 0; i < num_threads; i++) {
+        int startRow = i * rows_per_thread;
+        int endRow = (i == num_threads - 1) ? height : (i + 1) * rows_per_thread;
+
+        WArgs* threadArgs = new WArgs(startRow, endRow, width, row_size, row_pointers, image);
+
+        pthread_create(&threads[i], NULL, processRows, (void*)threadArgs);
+    }
+
+    // Wait for all threads to finish
+    for (int i = 0; i < num_threads; i++) {
+        pthread_join(threads[i], NULL);
     }
 
     // auto start = std::chrono::high_resolution_clock::now();
