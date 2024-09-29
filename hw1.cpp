@@ -5,11 +5,33 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <chrono>
-#include <omp.h>
-// #include <pthread.h>
+// #include <omp.h>
+#include <pthread.h>
 
 struct RGB {
     int r, g, b;
+};
+
+// Structure to pass arguments to threads
+struct CumulateArgs {
+    std::vector<std::vector<int>>* cumulativeSum;
+    int tHeight;
+    int tWidth;
+    int plusPre;
+    int hHeight;
+    int hWidth;
+    int height;
+    int width;
+    char channel;
+    const std::vector<std::vector<RGB>>& inputImage;
+};
+struct FArags {
+    std::vector<std::vector<int>>* cumulativeSum;
+    std::vector<std::vector<int>>* temp;
+    std::vector<std::vector<int>>* kernelSizes;
+    int height;
+    int width;
+    int plusPre;
 };
 
 double calculateLuminance(const RGB& pixel) {
@@ -45,110 +67,198 @@ void applyFilterToChannel(
     }
 }
 
+void* applyFilterToChannelThread(void* args) {
+    FArags* threadArgs = (FArags*)args;
+    applyFilterToChannel(*threadArgs->cumulativeSum, *threadArgs->temp, *threadArgs->kernelSizes,
+                         threadArgs->height, threadArgs->width, threadArgs->plusPre);
+    pthread_exit(NULL);
+}
+
+void* calculateKernelSizes(void* args) {
+    auto inputImage = ((CumulateArgs*)args)->inputImage;
+    std::vector<std::vector<int>>* kernelSizes = ((CumulateArgs*)args)->cumulativeSum;
+    int height = ((CumulateArgs*)args)->height;
+    int width = ((CumulateArgs*)args)->width;
+
+    for (int x = 0; x < height; x++) {
+        for (int y = 0; y < width; y++) {
+            double brightness = calculateLuminance(inputImage[x][y]);
+            (*kernelSizes)[x][y] = determineKernelSize(brightness);
+        }
+    }
+    pthread_exit(NULL);
+}
+
+void* calculateCumulativeSum(void* args) {
+    CumulateArgs* threadArgs = (CumulateArgs*)args;
+    auto& inputImage = threadArgs->inputImage;
+    std::vector<std::vector<int>>* cumulativeSum = threadArgs->cumulativeSum;
+
+    int tHeight = threadArgs->tHeight;
+    int tWidth = threadArgs->tWidth;
+    int plusPre = threadArgs->plusPre;
+    int hHeight = threadArgs->hHeight;
+    int hWidth = threadArgs->hWidth;
+    char channel = threadArgs->channel;
+
+    if(channel == 'r'){
+        for (int x = 1; x < tHeight; x++) {
+            for (int y = 1; y < tWidth; y++) {
+                int i = std::min(std::max(x, plusPre), hHeight - 1);
+                int j = std::min(std::max(y, plusPre), hWidth - 1);
+
+                (*cumulativeSum)[x][y] = inputImage[i - plusPre][j - plusPre].r - (*cumulativeSum)[x - 1][y - 1]
+                                    + (*cumulativeSum)[x][y - 1] + (*cumulativeSum)[x - 1][y];
+            }
+        }
+    }
+    else if(channel == 'g'){
+        for (int x = 1; x < tHeight; x++) {
+            for (int y = 1; y < tWidth; y++) {
+                int i = std::min(std::max(x, plusPre), hHeight - 1);
+                int j = std::min(std::max(y, plusPre), hWidth - 1);
+
+                (*cumulativeSum)[x][y] = inputImage[i - plusPre][j - plusPre].g - (*cumulativeSum)[x - 1][y - 1]
+                                    + (*cumulativeSum)[x][y - 1] + (*cumulativeSum)[x - 1][y];
+            }
+        }
+    }
+    else{
+        for (int x = 1; x < tHeight; x++) {
+            for (int y = 1; y < tWidth; y++) {
+                int i = std::min(std::max(x, plusPre), hHeight - 1);
+                int j = std::min(std::max(y, plusPre), hWidth - 1);
+
+                (*cumulativeSum)[x][y] = inputImage[i - plusPre][j - plusPre].b - (*cumulativeSum)[x - 1][y - 1]
+                                    + (*cumulativeSum)[x][y - 1] + (*cumulativeSum)[x - 1][y];
+            }
+        }
+    }
+    
+    pthread_exit(NULL);
+}
+
 void adaptiveFilterRGB(
     const std::vector<std::vector<RGB>>& inputImage,
     std::vector<std::vector<RGB>>& outputImage,
     int height, 
     int width
 ) {
-    // std::vector<std::vector<int>> redChannel(height, std::vector<int>(width));
-    // std::vector<std::vector<int>> greenChannel(height, std::vector<int>(width));
-    // std::vector<std::vector<int>> blueChannel(height, std::vector<int>(width));
-    std::vector<std::vector<int>> kernelSizes(height, std::vector<int>(width));
-
     int plusDimension = 11, plusPre = 6;
     int tHeight = height+plusDimension, tWidth = width+plusDimension;
     int hHeight = height+plusPre, hWidth = width+plusPre;
 
+    std::vector<std::vector<int>> kernelSizes(height, std::vector<int>(width));
     std::vector<std::vector<int>> redCumulativeSum(tHeight, std::vector<int>(tWidth));
     std::vector<std::vector<int>> greenCumulativeSum(tHeight, std::vector<int>(tWidth));
     std::vector<std::vector<int>> blueCumulativeSum(tHeight, std::vector<int>(tWidth));
 
-    #pragma omp parallel sections
-    {
-        #pragma omp section
-        {
-            for (int x = 0; x < height; x++) {
-                for (int y = 0; y < width; y++) {
-                    double brightness = calculateLuminance(inputImage[x][y]);
-                    kernelSizes[x][y] = determineKernelSize(brightness);
-                }
-            }
-        }
-        #pragma omp section
-        {
-            for (int x = 1; x < tHeight; x++) {
-                for (int y = 1; y < tWidth; y++) {
-                    int i = std::min(std::max(x, plusPre), hHeight - 1);
-                    int j = std::min(std::max(y, plusPre), hWidth - 1);
+    // #pragma omp parallel sections
+    // {
+    //     #pragma omp section
+    //     {
+    //         for (int x = 0; x < height; x++) {
+    //             for (int y = 0; y < width; y++) {
+    //                 double brightness = calculateLuminance(inputImage[x][y]);
+    //                 kernelSizes[x][y] = determineKernelSize(brightness);
+    //             }
+    //         }
+    //     }
+    //     #pragma omp section
+    //     {
+    //         for (int x = 1; x < tHeight; x++) {
+    //             for (int y = 1; y < tWidth; y++) {
+    //                 int i = std::min(std::max(x, plusPre), hHeight - 1);
+    //                 int j = std::min(std::max(y, plusPre), hWidth - 1);
 
-                    redCumulativeSum[x][y] = inputImage[i-plusPre][j-plusPre].r - redCumulativeSum[x-1][y-1]
-                                            + redCumulativeSum[x][y-1] + redCumulativeSum[x-1][y];
-                }
-            }
-        }
-        #pragma omp section
-        {
-            for (int x = 1; x < tHeight; x++) {
-                for (int y = 1; y < tWidth; y++) {
-                    int i = std::min(std::max(x, plusPre), hHeight - 1);
-                    int j = std::min(std::max(y, plusPre), hWidth - 1);
+    //                 redCumulativeSum[x][y] = inputImage[i-plusPre][j-plusPre].r - redCumulativeSum[x-1][y-1]
+    //                                         + redCumulativeSum[x][y-1] + redCumulativeSum[x-1][y];
+    //             }
+    //         }
+    //     }
+    //     #pragma omp section
+    //     {
+    //         for (int x = 1; x < tHeight; x++) {
+    //             for (int y = 1; y < tWidth; y++) {
+    //                 int i = std::min(std::max(x, plusPre), hHeight - 1);
+    //                 int j = std::min(std::max(y, plusPre), hWidth - 1);
 
-                    greenCumulativeSum[x][y] = inputImage[i-plusPre][j-plusPre].g - greenCumulativeSum[x-1][y-1]
-                                            + greenCumulativeSum[x][y-1] + greenCumulativeSum[x-1][y];
-                }
-            }
-        }
-        #pragma omp section
-        {
-            for (int x = 1; x < tHeight; x++) {
-                for (int y = 1; y < tWidth; y++) {
-                    int i = std::min(std::max(x, plusPre), hHeight - 1);
-                    int j = std::min(std::max(y, plusPre), hWidth - 1);
+    //                 greenCumulativeSum[x][y] = inputImage[i-plusPre][j-plusPre].g - greenCumulativeSum[x-1][y-1]
+    //                                         + greenCumulativeSum[x][y-1] + greenCumulativeSum[x-1][y];
+    //             }
+    //         }
+    //     }
+    //     #pragma omp section
+    //     {
+    //         for (int x = 1; x < tHeight; x++) {
+    //             for (int y = 1; y < tWidth; y++) {
+    //                 int i = std::min(std::max(x, plusPre), hHeight - 1);
+    //                 int j = std::min(std::max(y, plusPre), hWidth - 1);
 
-                    blueCumulativeSum[x][y] = inputImage[i-plusPre][j-plusPre].b - blueCumulativeSum[x-1][y-1]
-                                            + blueCumulativeSum[x][y-1] + blueCumulativeSum[x-1][y];
-                }
-            }
-        }
-    }
-
-    // // check cumulative sum
-    // for (int x = plusPre; x < hHeight; x++) {
-    //     for (int y = plusPre; y < hWidth; y++) {
-    //         int temp = greenCumulativeSum[x][y]
-    //                     -greenCumulativeSum[x - 1][y]
-    //                     -greenCumulativeSum[x][y - 1]
-    //                     +greenCumulativeSum[x - 1][y - 1];
-    //         if (inputImage[x-plusPre][y-plusPre].g != temp){
-    //             std::cout << x << ", " << y << "diff" << std::endl;
-    //             exit(1);
+    //                 blueCumulativeSum[x][y] = inputImage[i-plusPre][j-plusPre].b - blueCumulativeSum[x-1][y-1]
+    //                                         + blueCumulativeSum[x][y-1] + blueCumulativeSum[x-1][y];
+    //             }
     //         }
     //     }
     // }
+    pthread_t threads[4]; // 4 threads: one for kernelSizes, and one for each color channel
+
+    // Arguments for each thread
+    CumulateArgs redArgs = { &redCumulativeSum, tHeight, tWidth, plusPre, hHeight, hWidth, height, width, 'r', inputImage };
+    CumulateArgs greenArgs = { &greenCumulativeSum, tHeight, tWidth, plusPre, hHeight, hWidth, height, width, 'g', inputImage };
+    CumulateArgs blueArgs = { &blueCumulativeSum, tHeight, tWidth, plusPre, hHeight, hWidth, height, width, 'b', inputImage };
+    CumulateArgs kernelArgs = { &kernelSizes, 0, 0, 0, 0, 0, height, width, 'g', inputImage };
+
+    // Create threads
+    pthread_create(&threads[0], NULL, calculateKernelSizes, (void*)&kernelArgs);
+    pthread_create(&threads[1], NULL, calculateCumulativeSum, (void*)&redArgs);
+    pthread_create(&threads[2], NULL, calculateCumulativeSum, (void*)&greenArgs);
+    pthread_create(&threads[3], NULL, calculateCumulativeSum, (void*)&blueArgs);
+
+    // Wait for threads to finish
+    for (int i = 0; i < 4; i++) {
+        pthread_join(threads[i], NULL);
+    }
 
     std::vector<std::vector<int>> tempRed(height, std::vector<int>(width));
     std::vector<std::vector<int>> tempGreen(height, std::vector<int>(width));
     std::vector<std::vector<int>> tempBlue(height, std::vector<int>(width));
 
-    #pragma omp parallel sections
-    {
-        #pragma omp section
-        {
-            applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
-        }
-        #pragma omp section
-        {
-            applyFilterToChannel(greenCumulativeSum, tempGreen, kernelSizes, height, width, plusPre);
-        }
-        #pragma omp section
-        {
-            applyFilterToChannel(blueCumulativeSum, tempBlue, kernelSizes, height, width, plusPre);
-        }
+    // #pragma omp parallel sections
+    // {
+    //     #pragma omp section
+    //     {
+    //         applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+    //     }
+    //     #pragma omp section
+    //     {
+    //         applyFilterToChannel(greenCumulativeSum, tempGreen, kernelSizes, height, width, plusPre);
+    //     }
+    //     #pragma omp section
+    //     {
+    //         applyFilterToChannel(blueCumulativeSum, tempBlue, kernelSizes, height, width, plusPre);
+    //     }
+    // }
+    // // applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+    // // applyFilterToChannel(greenCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+    // // applyFilterToChannel(blueCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
+
+    FArags redF = { &redCumulativeSum, &tempRed, &kernelSizes, height, width, plusPre };
+    FArags greenF = { &greenCumulativeSum, &tempGreen, &kernelSizes, height, width, plusPre };
+    FArags blueF = { &blueCumulativeSum, &tempBlue, &kernelSizes, height, width, plusPre };
+
+    // Declare threads
+    pthread_t Fthreads[3];
+
+    // Create threads for red, green, and blue channels
+    pthread_create(&Fthreads[0], NULL, applyFilterToChannelThread, (void*)&redF);
+    pthread_create(&Fthreads[1], NULL, applyFilterToChannelThread, (void*)&greenF);
+    pthread_create(&Fthreads[2], NULL, applyFilterToChannelThread, (void*)&blueF);
+
+    // Wait for all threads to finish
+    for (int i = 0; i < 3; i++) {
+        pthread_join(Fthreads[i], NULL);
     }
-    // applyFilterToChannel(redCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
-    // applyFilterToChannel(greenCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
-    // applyFilterToChannel(blueCumulativeSum, tempRed, kernelSizes, height, width, plusPre);
 
     for (int x = 0; x < height; x++) {
         for (int y = 0; y < width; y++) {
@@ -158,8 +268,6 @@ void adaptiveFilterRGB(
         }
     }
 }
-
-
 
 void read_png_file(char* file_name, std::vector<std::vector<RGB>>& image) {
     FILE *fp = fopen(file_name, "rb");
@@ -296,7 +404,7 @@ void write_png_file(char* file_name, std::vector<std::vector<RGB>>& image) {
     // std::cout << width << ", " << height << ", " << row_size << std::endl;
 
     png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
-    #pragma omp parallel for schedule(guided)
+    // #pragma omp parallel for schedule(guided)
     for (int y = 0; y < height; y++) {
         row_pointers[y] = (png_byte*)malloc(row_size);
         for (int x = 0; x < width; x++) {
